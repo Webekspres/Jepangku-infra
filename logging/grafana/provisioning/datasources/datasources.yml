@@ -1,0 +1,23 @@
+# Grafana Datasource Provisioning — Jepangku Infra
+# https://grafana.com/docs/grafana/latest/administration/provisioning/
+#
+# Datasource Loki otomatis terdaftar saat Grafana pertama kali jalan.
+# Tidak perlu setup manual via UI.
+# Melayani semua service: jepangku-news, jepangku-core, jepangkuLMS
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: true
+    editable: false
+    jsonData:
+      maxLines: 5000
+      derivedFields:
+        # Link traceID ke Tempo (jika dipasang nanti)
+        - name: traceID
+          matcherRegex: "traceID=(\\w+)"
+          url: "http://localhost:3200/trace/$${__value.raw}"

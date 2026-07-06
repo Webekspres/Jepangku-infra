@@ -1,0 +1,98 @@
+# Promtail Configuration — Jepangku Infra
+# https://grafana.com/docs/loki/latest/clients/promtail/configuration/
+#
+# Mengumpulkan log dari semua container Docker secara otomatis.
+# Melayani semua service: jepangku-news, jepangku-core, jepangkuLMS
+# Label yang ditambahkan: container, compose_service, compose_project
+
+server:
+  http_listen_port: 9080
+  log_level: info
+
+client:
+  url: http://loki:3100/loki/api/v1/push
+  # Batch timeout — kirim tiap 5 detik atau 1MB
+  batchwait: 5s
+  batchsize: 1048576
+
+scrape_configs:
+  # -------------------------------------------------------
+  # Job 1: Docker container logs (via Docker API)
+  # -------------------------------------------------------
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+    relabel_configs:
+      # Label container name (tanpa leading slash)
+      - source_labels: ["__meta_docker_container_name"]
+        regex: "/(.*)"
+        target_label: container
+
+      # Label Docker Compose service name
+      - source_labels: ["__meta_docker_compose_service"]
+        regex: "(.+)"
+        target_label: compose_service
+
+      # Label Docker Compose project name
+      - source_labels: ["__meta_docker_compose_project"]
+        regex: "(.+)"
+        target_label: compose_project
+
+      # Label Docker image
+      - source_labels: ["__meta_docker_container_image"]
+        regex: "(.+)"
+        target_label: image
+
+      # Hanya kirim log dari container yang running
+      - source_labels: ["__meta_docker_container_state"]
+        regex: "running"
+        action: keep
+
+    pipeline_stages:
+      # Parse JSON log dari Pino (Next.js apps)
+      - json:
+          expressions:
+            level: level
+            msg: msg
+            service: service
+            module: module
+            reqId: reqId
+            durationMs: durationMs
+            status: status
+            method: method
+            path: path
+            error: error
+
+      # Set level label dari field `level` (jika ada)
+      - labels:
+          level:
+          service:
+
+  # -------------------------------------------------------
+  # Job 2: Docker container logs (via file /var/log)
+  # Fallback untuk container yang tidak bisa di-scrape via API
+  # -------------------------------------------------------
+  - job_name: docker_files
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker_files
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            log: log
+            stream: stream
+            time: time
+            attrs: attrs
+
+      - regex:
+          expression: (?P<container_name>^[a-zA-Z0-9_.-]+)
+          source: attrs."container.name"
+
+      - labels:
+          container_name:
+          stream:

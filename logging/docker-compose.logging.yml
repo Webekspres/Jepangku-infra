@@ -1,0 +1,93 @@
+# 🌲 Jepangku — Logging Stack (Infrastruktur Terpusat)
+# 
+# Stack: Pino (app) → stdout → Promtail → Loki → Grafana
+# Melayani semua service: jepangku-news, jepangku-core, jepangkuLMS
+#
+# Cara pakai:
+#   cd jepangku-infra/logging
+#   docker compose -f docker-compose.logging.yml up -d
+#
+# Ports:
+#   - Grafana: 3002 (admin/admin — ganti password!)
+#   - Loki:    3100 (internal — tidak perlu diekspos)
+#   - Promtail: 9080 (internal — tidak perlu diekspos)
+
+services:
+  # ======================================================
+  # Loki — penyimpanan & query log
+  # ======================================================
+  loki:
+    image: grafana/loki:latest
+    container_name: jepangku-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - jepangku-logging
+
+  # ======================================================
+  # Promtail — collector log dari semua container Docker
+  # ======================================================
+  promtail:
+    image: grafana/promtail:latest
+    container_name: jepangku-promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yaml
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yaml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      loki:
+        condition: service_healthy
+    networks:
+      - jepangku-logging
+
+  # ======================================================
+  # Grafana — dashboard UI untuk lihat & analisis log
+  # ======================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: jepangku-grafana
+    restart: unless-stopped
+    ports:
+      - "3002:3000"    # port 3002 → hindari konflik dengan service lain
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_INSTALL_PLUGINS=
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - jepangku-logging
+
+volumes:
+  loki-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+networks:
+  jepangku-logging:
+    driver: bridge
