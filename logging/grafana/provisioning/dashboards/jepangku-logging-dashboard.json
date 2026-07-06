@@ -1,0 +1,234 @@
+{
+  "title": "Jepangku — Logging Dashboard",
+  "uid": "jepangku-logging",
+  "version": 1,
+  "schemaVersion": 39,
+  "tags": ["jepangku", "logging"],
+  "timezone": "asia/jakarta",
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "🔥 Error Rate per Module",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "orientation": "horizontal",
+        "showLegend": false,
+        "barRadius": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 85 },
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({container=\"jepangku-news\"} | json | level=\"error\" [1m])) by (module)",
+          "legendFormat": "{{ module }}",
+          "refId": "A"
+        }
+      ],
+      "description": "Jumlah error per menit, dikelompokkan berdasarkan module (auth, article, core.client, email.transport, etc.)"
+    },
+    {
+      "id": 2,
+      "title": "⏱ Request Duration P50 / P95 / P99",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "legend": { "calcs": [], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never"
+          },
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 2000 },
+              { "color": "red", "value": 5000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "quantile_over_time(0.50, {container=\"jepangku-news\"} | json | durationMs > 0 | unwrap durationMs [5m]) by (path)",
+          "legendFormat": "P50 — {{ path }}",
+          "refId": "A"
+        },
+        {
+          "expr": "quantile_over_time(0.95, {container=\"jepangku-news\"} | json | durationMs > 0 | unwrap durationMs [5m]) by (path)",
+          "legendFormat": "P95 — {{ path }}",
+          "refId": "B"
+        },
+        {
+          "expr": "quantile_over_time(0.99, {container=\"jepangku-news\"} | json | durationMs > 0 | unwrap durationMs [5m]) by (path)",
+          "legendFormat": "P99 — {{ path }}",
+          "refId": "C"
+        }
+      ],
+      "description": "Request duration percentiles. Threshold: >2s warning, >5s critical."
+    },
+    {
+      "id": 3,
+      "title": "📊 HTTP Status Distribution (2xx / 4xx / 5xx)",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 10 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "orientation": "vertical",
+        "showLegend": true,
+        "stacking": "normal",
+        "barRadius": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 85 },
+          "unit": "reqps"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({container=\"jepangku-news\"} | json | status >= 200 and status < 300 [1m]))",
+          "legendFormat": "2xx — Success",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(count_over_time({container=\"jepangku-news\"} | json | status >= 400 and status < 500 [1m]))",
+          "legendFormat": "4xx — Client Error",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(count_over_time({container=\"jepangku-news\"} | json | status >= 500 [1m]))",
+          "legendFormat": "5xx — Server Error",
+          "refId": "C"
+        }
+      ],
+      "description": "Distribusi status HTTP per menit: 2xx sukses, 4xx client error, 5xx server error."
+    },
+    {
+      "id": 4,
+      "title": "🐌 Top 10 Slowest Endpoints (P95)",
+      "type": "barchart",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 10 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "orientation": "horizontal",
+        "showLegend": false,
+        "barRadius": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 85 },
+          "color": { "mode": "thresholds" },
+          "unit": "ms",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 2000 },
+              { "color": "red", "value": 5000 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk(10, quantile_over_time(0.95, {container=\"jepangku-news\"} | json | durationMs > 0 | unwrap durationMs [15m]) by (path))",
+          "legendFormat": "{{ path }}",
+          "refId": "A"
+        }
+      ],
+      "description": "10 endpoint terlambat berdasarkan P95 dalam 15 menit terakhir."
+    },
+    {
+      "id": 5,
+      "title": "📈 Error Trend per Jam",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 20 },
+      "datasource": { "type": "loki", "uid": "Loki" },
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineInterpolation": "smooth",
+            "showPoints": "never",
+            "fillOpacity": 20
+          },
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({container=\"jepangku-news\"} | json | level=\"error\" [1m])) by (module)",
+          "legendFormat": "{{ module }}",
+          "refId": "A"
+        }
+      ],
+      "description": "Tren error per module dalam rentang waktu yang dipilih."
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "container",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "Loki" },
+        "query": "label_values(container)",
+        "refresh": 1,
+        "current": { "text": "jepangku-news", "value": "jepangku-news" },
+        "includeAll": true,
+        "multi": true
+      },
+      {
+        "name": "module",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "Loki" },
+        "query": "label_values({container=~\"$container\"} | json, module)",
+        "refresh": 2,
+        "current": { "text": "All", "value": "" },
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deploy Events",
+        "datasource": { "type": "loki", "uid": "Loki" },
+        "expr": "{container=\"jepangku-news\"} |= \"deploy\"",
+        "iconColor": "blue",
+        "enable": true
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "Loki Explore",
+      "type": "link",
+      "url": "/explore",
+      "targetBlank": false
+    }
+  ]
+}

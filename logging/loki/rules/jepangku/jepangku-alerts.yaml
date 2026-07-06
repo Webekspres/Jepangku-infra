@@ -1,0 +1,137 @@
+# Grafana Loki Alert Rules — Jepangku Infra
+# https://grafana.com/docs/loki/latest/rules/
+#
+# Peringatan dikirim ke contact point yang dikonfigurasi di Grafana
+# (Telegram, Email, Slack, dll — tergantung setup Grafana Alerting).
+#
+# Cara pakai:
+#   1. Dashboard Grafana → Alerting → Contact points → tambah Telegram/Email
+#   2. Dashboard Grafana → Alerting → Notification policies → arahkan ke contact point
+#   3. Rules ini otomatis dimuat karena ada di provisioning directory
+#
+# Directory: /etc/loki/rules/fake/ → mount dari loki/rules/
+# Rule namespace (nama file) = "jepangku-alerts"
+
+groups:
+  # ─═══════════════════════════════════════════════════
+  # Group: Production Critical — jepangku-news
+  # ─═══════════════════════════════════════════════════
+  - name: jepangku-news-critical
+    interval: 1m
+    rules:
+      # 🔴 ERROR RATE > 5/MIN
+      # Fire when error count exceeds 5 per minute for 2 consecutive minutes
+      - alert: JepangkuNews_HighErrorRate
+        expr: |
+          sum(count_over_time({container="jepangku-news"} | json | level="error" [1m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: jepangku-news
+        annotations:
+          summary: "Error rate > 5 per menit pada jepangku-news"
+          description: |
+            Error rate mencapai {{ $value }} per menit selama 2 menit terakhir.
+            Cek dashboard: http://localhost:3002/d/jepangku-logging
+
+      # 🔴 P95 LATENCY > 5 DETIK
+      # Fire when any endpoint's P95 latency exceeds 5000ms for 5 minutes
+      - alert: JepangkuNews_HighLatencyP95
+        expr: |
+          max(quantile_over_time(0.95, {container="jepangku-news"} | json | durationMs > 0 | unwrap durationMs [5m]) by (path)) > 5000
+        for: 5m
+        labels:
+          severity: warning
+          service: jepangku-news
+        annotations:
+          summary: "P95 latency > 5 detik pada satu atau lebih endpoint"
+          description: |
+            P95 latency mencapai {{ $value }} ms.
+            Endpoint terlambat: lihat panel "Top 10 Slowest Endpoints" di dashboard.
+
+      # 🔴 CRASH LOOP — MULTIPLE FATAL IN 1 MINUTE
+      # Detects rapid crashes: 3+ fatal errors in 60 seconds
+      - alert: JepangkuNews_CrashLoop
+        expr: |
+          sum(count_over_time({container="jepangku-news"} | json | level="error" or level="fatal" [1m])) > 3
+        for: 1m
+        labels:
+          severity: critical
+          service: jepangku-news
+        annotations:
+          summary: "Crash loop terdeteksi pada jepangku-news"
+          description: |
+            {{ $value }} error/fatal dalam 1 menit. Kemungkinan crash loop.
+            Segera cek container: docker logs jepangku-news --tail 50
+
+  # ─═══════════════════════════════════════════════════
+  # Group: Warning — jepangku-news
+  # ─═══════════════════════════════════════════════════
+  - name: jepangku-news-warnings
+    interval: 5m
+    rules:
+      # 🟡 WARNING: Error rate > 2/min in 5 minutes
+      - alert: JepangkuNews_ErrorRateWarning
+        expr: |
+          sum(count_over_time({container="jepangku-news"} | json | level="error" [5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: jepangku-news
+        annotations:
+          summary: "Error rate meningkat — >2 error/menit dalam 5 menit"
+          description: |
+            Total {{ $value }} error dalam 5 menit terakhir.
+            Rata-rata {{ div ($value) 5 }} error/menit.
+
+      # 🟡 WARNING: 5xx rate > 10% in 5 minutes
+      - alert: JepangkuNews_High5xxRate
+        expr: |
+          (
+            sum(count_over_time({container="jepangku-news"} | json | status >= 500 [5m]))
+            /
+            sum(count_over_time({container="jepangku-news"} | json | status >= 200 [5m]))
+          ) * 100 > 10
+        for: 5m
+        labels:
+          severity: warning
+          service: jepangku-news
+        annotations:
+          summary: "5xx rate > 10% dalam 5 menit"
+          description: |
+            {{ $value | humanizePercentage }} request mengembalikan 5xx.
+            Segera investigasi.
+
+      # 🟡 WARNING: Core API calls failing
+      - alert: JepangkuNews_CoreApiDegraded
+        expr: |
+          sum(count_over_time({container="jepangku-news"} | json | module="core.client" | level="warn" [5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: jepangku-news
+        annotations:
+          summary: "Core API calls mengalami kegagalan"
+          description: |
+            Terdeteksi {{ $value }} warning dari core.client dalam 5 menit.
+            Kemungkinan Core service down atau tidak stabil.
+
+  # ─═══════════════════════════════════════════════════
+  # Group: Infrastructure
+  # ─═══════════════════════════════════════════════════
+  - name: jepangku-infra
+    interval: 5m
+    rules:
+      # 🟡 WARNING: Disk space low (via Loki metrics)
+      - alert: JepangkuInfra_DiskSpace
+        expr: |
+          sum(count_over_time({container="jepangku-loki"} |= "out of disk space" [5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          service: jepangku-infra
+        annotations:
+          summary: "Loki kehabisan disk space"
+          description: |
+            Segera pruning log atau tambah kapasitas disk.
+            Cek: docker system df

@@ -25,13 +25,12 @@ services:
       - "3100:3100"
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - ./loki/rules:/loki/rules
       - loki-data:/loki
+    # Healthcheck di-disable karena image distroless tidak punya wget/curl
+    # Loki sudah terbukti running dengan cepat (startup ~425ms dari log sebelumnya)
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3100/ready"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+      disable: true
     networks:
       - jepangku-logging
 
@@ -49,7 +48,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
       loki:
-        condition: service_healthy
+        condition: service_started
     networks:
       - jepangku-logging
 
@@ -67,18 +66,13 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin
       - GF_INSTALL_PLUGINS=
       - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_UNIFIED_ALERTING_ENABLED=true
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning
       - grafana-data:/var/lib/grafana
     depends_on:
       loki:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 30s
+        condition: service_started
     networks:
       - jepangku-logging
 

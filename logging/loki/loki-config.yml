@@ -15,10 +15,19 @@ server:
 common:
   path_prefix: /loki
   replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
   storage:
     filesystem:
       chunks_directory: /loki/chunks
       rules_directory: /loki/rules
+
+# Single-node: pakai memberlist (gossip), bukan Consul
+memberlist:
+  join_members: []
+  abort_if_cluster_join_fails: false
 
 limits_config:
   # Retention log — 7 hari (168 jam)
@@ -33,7 +42,6 @@ limits_config:
 
 compactor:
   working_directory: /loki/compactor
-  shared_store: filesystem
   retention_enabled: true
   delete_request_store: filesystem
 
@@ -48,9 +56,24 @@ schema_config:
         prefix: index_
         period: 24h
 
-table_manager:
-  retention_deletes_enabled: true
-  retention_period: 168h
+# ─══════════════════════════════════════════════════════════════
+# Ruler — Loki Alerting (Phase 6.2)
+# https://grafana.com/docs/loki/latest/operations/ruler/
+# ─══════════════════════════════════════════════════════════════
+# Rules disimpan di filesystem (bukan API) agar dapat di-version control.
+# Directory: /loki/rules/fake/ — mount dari loki/rules/
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules-temp
+  alertmanager_url: http://grafana:3000/alertmanager
+  enable_alertmanager_v2: true
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: false
 
 # Analytics dimatikan agar tidak call home
 analytics:

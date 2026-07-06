@@ -1,0 +1,17 @@
+# Grafana Dashboard Provisioning — Jepangku Infra
+# https://grafana.com/docs/grafana/latest/administration/provisioning/#dashboards
+#
+# Auto-loads the Jepangku Logging Dashboard on Grafana startup.
+# No manual import needed.
+
+apiVersion: 1
+
+providers:
+  - name: Jepangku Logging
+    orgId: 1
+    folder: Jepangku
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/provisioning/dashboards
