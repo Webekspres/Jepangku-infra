@@ -7,9 +7,14 @@
 
 apiVersion: 1
 
+# Hapus datasource lama jika UID berubah (hindari crash Grafana 12+)
+deleteDatasources:
+  - name: Loki
+    orgId: 1
+
 datasources:
   - name: Loki
-    uid: Loki
+    uid: loki
     type: loki
     access: proxy
     url: http://loki:3100
@@ -17,8 +22,3 @@ datasources:
     editable: false
     jsonData:
       maxLines: 5000
-      derivedFields:
-        # Link traceID ke Tempo (jika dipasang nanti)
-        - name: traceID
-          matcherRegex: "traceID=(\\w+)"
-          url: "http://localhost:3200/trace/$${__value.raw}"

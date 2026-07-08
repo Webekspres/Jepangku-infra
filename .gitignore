@@ -1,0 +1,13 @@
+# Secrets & environment — JANGAN commit
+.env
+**/.env
+!**/.env.example
+
+# Data & backup runtime logging stack
+logging/loki-data/
+logging/backups/
+logging/**/positions.yaml
+
+# OS / editor
+.DS_Store
+Thumbs.db

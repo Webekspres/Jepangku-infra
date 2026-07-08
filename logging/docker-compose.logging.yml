@@ -22,7 +22,8 @@ services:
     restart: unless-stopped
     command: -config.file=/etc/loki/local-config.yaml
     ports:
-      - "3100:3100"
+      # Hanya localhost — Loki tidak boleh diakses publik.
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./loki/loki-config.yml:/etc/loki/local-config.yaml
       - ./loki/rules:/loki/rules
@@ -60,10 +61,11 @@ services:
     container_name: jepangku-grafana
     restart: unless-stopped
     ports:
-      - "3002:3000"    # port 3002 → hindari konflik dengan service lain
+      # Hanya localhost — akses via SSH tunnel: ssh -L 3040:127.0.0.1:3040 <vps>
+      - "127.0.0.1:${GRAFANA_PORT:-3002}:3000"    # default 3002; VPS pakai 3040 (3002 = LMS)
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
       - GF_INSTALL_PLUGINS=
       - GF_AUTH_ANONYMOUS_ENABLED=false
       - GF_UNIFIED_ALERTING_ENABLED=true

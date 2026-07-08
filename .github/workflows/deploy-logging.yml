@@ -1,0 +1,91 @@
+name: Deploy Logging Stack to VPS
+
+# Deploy otomatis stack logging (Loki + Promtail + Grafana) ke VPS
+# setiap kali ada perubahan di logging/ yang di-merge ke branch `main`.
+#
+# Secrets yang diperlukan (Settings → Secrets and variables → Actions):
+#   VPS_SSH_HOST  → 103.25.223.16
+#   VPS_SSH_PORT  → 8288
+#   VPS_SSH_USER  → developer
+#   VPS_SSH_KEY   → private key OpenSSH (isi lengkap) milik user `developer`
+#
+# Direktori target di VPS: ~/Jepangku-infra (hasil clone repo ini)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "logging/**"
+      - "deploy/**"
+      - ".github/workflows/deploy-logging.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-logging
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate compose & config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker compose file
+        working-directory: logging
+        run: |
+          # Butuh .env dummy agar interpolasi variabel tidak gagal
+          cp -n .env.example .env || true
+          docker compose -f docker-compose.logging.yml config >/dev/null
+          echo "docker-compose OK"
+
+      - name: Validate YAML (loki, promtail, grafana provisioning)
+        run: |
+          python3 - <<'PY'
+          import sys, glob, yaml
+          files = (
+              glob.glob("logging/**/*.yml", recursive=True)
+              + glob.glob("logging/**/*.yaml", recursive=True)
+          )
+          bad = []
+          for f in files:
+              try:
+                  with open(f) as fh:
+                      list(yaml.safe_load_all(fh))
+              except Exception as e:  # noqa: BLE001
+                  bad.append(f"{f}: {e}")
+          if bad:
+              print("\n".join(bad))
+              sys.exit(1)
+          print(f"{len(files)} file YAML valid")
+          PY
+
+  deploy:
+    name: Deploy to VPS
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_SSH_HOST }}
+          port: ${{ secrets.VPS_SSH_PORT }}
+          username: ${{ secrets.VPS_SSH_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            cd ~/Jepangku-infra
+            git fetch origin main
+            git checkout main
+            # Samakan persis dengan main (buang perubahan lokal lama di server).
+            # File untracked seperti logging/.env (berisi password Grafana) TIDAK terhapus.
+            git reset --hard origin/main
+            cd logging
+            test -f .env || cp .env.example .env
+            docker compose -f docker-compose.logging.yml up -d --remove-orphans
+            # Restart promtail agar re-read config terbaru
+            docker compose -f docker-compose.logging.yml restart promtail
+            echo "=== status ==="
+            docker compose -f docker-compose.logging.yml ps

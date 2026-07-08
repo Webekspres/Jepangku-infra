@@ -32,6 +32,10 @@ memberlist:
 limits_config:
   # Retention log — 7 hari (168 jam)
   retention_period: 168h
+  # Terima log sampai 7 hari ke belakang (hindari error "entry too far behind"
+  # saat Promtail catch-up log lama dari Docker API setelah restart).
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
   # Maks ukuran per baris log (100KB — cukup untuk JSON panjang)
   max_line_size: 100KB
   # Maks query yang bisa di-return (5000 baris)
