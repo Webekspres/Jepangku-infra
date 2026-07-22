@@ -1,0 +1,66 @@
+# Jepangku — Metrics stack (opsional, hemat RAM)
+# Prometheus + Node Exporter + cAdvisor
+#
+# Cara pakai (di VPS, folder logging):
+#   docker compose -f docker-compose.logging.yml -f docker-compose.metrics.yml up -d
+#
+# Grafana datasource Prometheus otomatis (lihat grafana/provisioning/datasources/).
+# Port hanya localhost — akses via SSH tunnel.
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: jepangku-prometheus
+    restart: unless-stopped
+    mem_limit: 256m
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - jepangku-logging
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    container_name: jepangku-node-exporter
+    restart: unless-stopped
+    mem_limit: 64m
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    volumes:
+      - /:/host:ro,rslave
+    networks:
+      - jepangku-logging
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: jepangku-cadvisor
+    restart: unless-stopped
+    mem_limit: 128m
+    privileged: true
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=30s
+      - --disable_metrics=advtcp,cpu_topology,cpuset,hugetlb,memory_numa,process,referenced_memory,resctrl,sched,tcp,udp,percpu,perf_event,disk,diskIO
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - jepangku-logging
+
+volumes:
+  prometheus-data:
+    driver: local

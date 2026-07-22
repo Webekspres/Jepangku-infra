@@ -1,18 +1,5 @@
 # Promtail Configuration — Jepangku Infra
-# https://grafana.com/docs/loki/latest/clients/promtail/configuration/
-#
-# Mengumpulkan log dari SEMUA container Docker via Docker API (docker_sd).
-# Melayani semua service: jepangku-news, jepangku-core, jepangkuLMS
-#
-# Label yang dihasilkan (low-cardinality, aman untuk Loki):
-#   container → nama container (mis. jepangku_portal, jepangku_lms)
-#   service   → field JSON `service` dari Pino (mis. jepangku-news)
-#   level     → field JSON `level` (info/warn/error)
-#
-# CATATAN: job fallback `docker_files` sengaja DIHAPUS. Job itu membaca ulang
-# seluruh file *-json.log dari awal setiap restart → memicu error Loki
-# "entry too far behind" (timestamp too old) dan label `filename` yang tak
-# terbaca. docker_sd men-tail via Docker API dengan posisi tersimpan.
+# Sumber: Docker SD + Nginx + host logs (docker-events, origin-uptime)
 
 server:
   http_listen_port: 9080
@@ -23,29 +10,19 @@ positions:
 
 client:
   url: http://loki:3100/loki/api/v1/push
-  # Batch timeout — kirim tiap 5 detik atau 1MB
   batchwait: 5s
   batchsize: 1048576
 
 scrape_configs:
-  # -------------------------------------------------------
-  # Docker container logs (via Docker API)
-  # -------------------------------------------------------
   - job_name: docker
     docker_sd_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 10s
     relabel_configs:
-      # Label container name. Leading slash opsional (beda antar versi promtail:
-      # 3.6.x kadang tanpa "/"). "/?(.*)" cocok untuk keduanya.
       - source_labels: ["__meta_docker_container_name"]
         regex: "/?(.*)"
         target_label: container
-      # job label otomatis = job_name ("docker"), tak perlu di-override manual.
-
     pipeline_stages:
-      # Parse JSON log dari Pino (Next.js apps). Container non-JSON (postgres,
-      # redis) akan gagal parse tanpa error — hanya tak punya label service/level.
       - json:
           expressions:
             level: level
@@ -54,8 +31,64 @@ scrape_configs:
             status: status
             durationMs: durationMs
             path: path
-
-      # Promosikan field low-cardinality menjadi label
       - labels:
           service:
           level:
+
+  - job_name: nginx-access
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          log_type: access
+          service: nginx
+          __path__: /var/log/nginx/access.log
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<remote_addr>\S+) .* \[(?P<time_local>[^\]]+)\] "(?P<method>\S+) (?P<path>\S+)[^"]*" (?P<status>\d+) (?P<body_bytes_sent>\d+) ".*" ".*" host=(?P<host>\S+) rt=(?P<request_time>\S+) uct="(?P<upstream_connect_time>[^"]*)" uht="(?P<upstream_header_time>[^"]*)" urt="(?P<upstream_response_time>[^"]*)" us="(?P<upstream_status>[^"]*)" ua="(?P<upstream_addr>[^"]*)"'
+      - labels:
+          host:
+          status:
+          upstream_status:
+
+  - job_name: nginx-error
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          log_type: error
+          service: nginx
+          __path__: /var/log/nginx/error.log
+
+  - job_name: docker-events
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: jepangku-host
+          service: docker-events
+          __path__: /var/log/jepangku/docker-events.log
+    pipeline_stages:
+      - json:
+          expressions:
+            Action: Action
+            ActorName: Actor.Attributes.name
+            exitCode: Actor.Attributes.exitCode
+      - labels:
+          Action:
+
+  - job_name: origin-uptime
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: jepangku-host
+          service: origin-uptime
+          __path__: /var/log/jepangku/origin-uptime.log
+    pipeline_stages:
+      - json:
+          expressions:
+            state: state
+            target: target
+            event: event
+      - labels:
+          state:
+          target:

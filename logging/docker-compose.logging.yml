@@ -36,6 +36,26 @@ services:
       - jepangku-logging
 
   # ======================================================
+  # Docker events — audit stop/start/die/oom/kill
+  # ======================================================
+  docker-events:
+    image: docker:27-cli
+    container_name: jepangku-docker-events
+    restart: unless-stopped
+    mem_limit: 32m
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/jepangku:/var/log/jepangku
+      - ./scripts/docker-events-logger.sh:/usr/local/bin/docker-events-logger.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        chmod +x /usr/local/bin/docker-events-logger.sh
+        exec /usr/local/bin/docker-events-logger.sh
+    networks:
+      - jepangku-logging
+
+  # ======================================================
   # Promtail — collector log dari semua container Docker
   # ======================================================
   promtail:
@@ -47,6 +67,8 @@ services:
       - ./promtail/promtail-config.yml:/etc/promtail/config.yaml
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/log/nginx:/var/log/nginx:ro
+      - /var/log/jepangku:/var/log/jepangku:ro
     depends_on:
       loki:
         condition: service_started

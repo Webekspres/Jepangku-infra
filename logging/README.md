@@ -10,31 +10,32 @@ Infrastruktur logging terpusat: **Pino (app) → stdout → Promtail → Loki �
 
 ---
 
-## Arsitektur
+## Arsitektur request (production VPS)
 
 ```
-                          ┌──────────────────┐
-                          │  Grafana          │
-                          │  localhost:3040   │  ← SSH tunnel dari laptop
-                          └────────┬─────────┘
-                                   │ query
-                          ┌────────▼─────────┐
-                          │  Loki             │
-                          │  localhost:3100   │
-                          └────────┬─────────┘
-                                   │ push
-                          ┌────────▼─────────┐
-                          │  Promtail         │
-                          │  (docker_sd)      │  ← baca semua container Docker
-                          └────────┬─────────┘
-                                   │
-        ┌──────────────────────────┼──────────────────────────┐
-        ▼                          ▼                          ▼
-┌───────────────┐        ┌───────────────┐        ┌──────────────────┐
-│ jepangku-news │        │ jepangku-core  │        │ jepangku-lms     │
-│ Pino → stdout │        │ Pino → stdout  │        │ Pino → stdout    │
-└───────────────┘        └───────────────┘        └──────────────────┘
+Cloudflare
+    │
+    ▼
+Nginx (host)                    ← log: /var/log/nginx/  (bukan container)
+    │  proxy_pass 127.0.0.1:3001 / 3002 / 8080
+    ▼
+Docker: portal / lms / core / db / redis
 ```
+
+Bukan Traefik/Caddy, bukan Nginx di dalam container. Saat Cloudflare 502, periksa **Nginx host** + **Docker lifecycle**, bukan hanya log aplikasi.
+
+## Arsitektur logging
+
+```
+ Nginx access/error ──┐
+ docker-events.log  ──┼──► Promtail ──► Loki ──► Grafana (:3040)
+ origin-uptime.log  ──┤
+ app stdout (Pino)  ──┘
+                              ▲
+ Prometheus / node / cAdvisor ┘  (opsional, docker-compose.metrics.yml)
+```
+
+Runbook investigasi: [`INCIDENT_QUERIES.md`](./INCIDENT_QUERIES.md)
 
 ---
 
@@ -48,11 +49,17 @@ git clone https://github.com/Webekspres/Jepangku-infra.git ~/Jepangku-infra
 cd ~/Jepangku-infra/logging
 cp .env.example .env   # edit GRAFANA_ADMIN_PASSWORD
 
-# Jalankan
+# Jalankan logging
 docker compose -f docker-compose.logging.yml up -d
+
+# Observability penuh (Nginx upstream log + uptime probe + docker-events)
+bash ~/Jepangku-infra/deploy/scripts/vps-install-observability.sh
+
+# + metrics historis CPU/RAM/disk/container (~450MB RAM ekstra)
+bash ~/Jepangku-infra/deploy/scripts/vps-install-observability.sh --with-metrics
 ```
 
-Atau script otomatis:
+Atau setup logging saja:
 
 ```bash
 bash ~/Jepangku-infra/deploy/scripts/vps-setup-logging.sh
@@ -166,6 +173,9 @@ Rules didefinisikan di `loki/rules/jepangku/jepangku-alerts.yaml` (Loki Ruler).
 | `JepangkuNews_ErrorRateWarning` | >10 error/5 menit | warning |
 | `JepangkuNews_High5xxRate` | 5xx >10%/5 menit | warning |
 | `JepangkuNews_CoreApiDegraded` | >5 core.client warn/5 menit | warning |
+| `JepangkuOrigin_Down` | probe localhost DOWN ≥2 menit | critical |
+| `JepangkuContainer_LifecycleCritical` | stop/die/oom/kill pada prod | critical |
+| `JepangkuNginx_UpstreamFailure` | >5 upstream error Nginx /2 menit | critical |
 
 **Setup notifikasi (manual, sekali):**
 
