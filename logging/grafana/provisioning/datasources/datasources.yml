@@ -1,15 +1,10 @@
 # Grafana Datasource Provisioning — Jepangku Infra
-# https://grafana.com/docs/grafana/latest/administration/provisioning/
-#
-# Datasource Loki otomatis terdaftar saat Grafana pertama kali jalan.
-# Tidak perlu setup manual via UI.
-# Melayani semua service: jepangku-news, jepangku-core, jepangkuLMS
-
 apiVersion: 1
 
-# Hapus datasource lama jika UID berubah (hindari crash Grafana 12+)
 deleteDatasources:
   - name: Loki
+    orgId: 1
+  - name: Prometheus
     orgId: 1
 
 datasources:
@@ -22,3 +17,14 @@ datasources:
     editable: false
     jsonData:
       maxLines: 5000
+
+  # Aktif setelah: docker compose -f docker-compose.logging.yml -f docker-compose.metrics.yml up -d
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    editable: false
+    jsonData:
+      timeInterval: 30s
